@@ -3187,7 +3187,9 @@ const roles = await import('../lib/roles.js')
     //   伪行的 `name` 恒为字面量 `'lead'` ⇒ **`write_self {target:'soul'}` 会写到 `soul/lead.md`**，
     //   也就是 **真 Lead 自己那份**（而 SOUL 每步注入进 Lead 的上下文）。
     //   实测（本机）：`resolveSelfTarget({member:'lead',target:'soul'})` ⇒
-    //   `C:\Users\Eldwen\.dsh\.teamkit\soul\lead.md` —— **与真 Lead 落点逐字相同**。
+    //   `<用户目录>\.dsh\.teamkit\soul\lead.md` —— **与真 Lead 落点逐字相同**。
+    //   ⚠️ **2026-09-15 脱敏**：原文逐字写了本机用户名 ⇒ 开源前改成占位符
+    //     （`R35`：公开不可逆 —— 那串字**已经在公网历史里了**，此处只是不再新增）。
     let rtl = ''
     try { rtl = readFileSync(join(PLUGIN_DIR, 'lib', 'release-tools.js'), 'utf8') } catch { rtl = '' }
     const rtlCode = rtl
@@ -6304,7 +6306,7 @@ const roles = await import('../lib/roles.js')
   UNV('I', '通知的**送达**（搭车形态：做完活就 idle 的 agent 永远收不到）',
     '要补的测法：给一个会 idle 的 agent 装上，改上游后等它下一步')
   UNV('I', '`dsh plugin --profile <p> add <本地路径>` 的**端到端**（本轮**没有真跑**那条命令 —— '
-    + '它要写 profile 依赖，任务明令禁止；本机 `pnpm` 在 `C:\\Users\\Eldwen\\AppData\\Roaming\\npm\\pnpm`）',
+    + '它要写 profile 依赖，任务明令禁止；本机 `pnpm` 在 `<npm 全局目录>`）',
     '要补的测法：用户机器上照 README 的安装命令跑一次')
   UNV('I', 'guard 在真 DSH 里对 `pwsh` 等旁路的**实测绕过**（本组只断言了"文案写了绕过面" + 纯函数判定；'
     + '「pwsh 绕得过、零审计」是 P-15 的既有实测，本轮未复现）', '不阻塞：默认关')
