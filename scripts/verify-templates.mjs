@@ -15,12 +15,14 @@
 import { execFileSync } from 'node:child_process'
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { dirname, join, resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { dirname, join, resolve, sep } from 'node:path'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const REPO = resolve(HERE, '../..')
 const PLUGIN = join(REPO, 'plugin')
+// ★ 脱敏后需要用 PLUGIN_DIR 兜底找依赖（与 PLUGIN 同义，保留两个名字以免改动面过大）
+const PLUGIN_DIR = PLUGIN
 const NODE = process.execPath
 
 const rows = []
@@ -106,12 +108,30 @@ say('')
 
 // ── ③ 真 discovery ───────────────────────────────────────────────────────
 say('═══ ③ 用**真 `discoverPresets()`** 读 fakeHome ═══')
-const R = 'file:///C:/Users/Eldwen/AppData/Roaming/npm/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/'
+// ⚠️ **2026-09-15 脱敏**：原来这两条是**硬编码的本机绝对路径**（含用户名）——
+//   那既**泄露本机用户名**，又**在别人机器上一跑就崩**（路径不存在）。
+//   ⇒ 改成**从环境推**：优先 `DSH_CHECKOUT` / `DSH_HOME`，再兜底从本脚本位置往上找。
+const DSH_PKGS = (() => {
+  const cands = []
+  if (process.env.DSH_CHECKOUT) cands.push(process.env.DSH_CHECKOUT)
+  if (process.env.DSH_HOME) cands.push(join(process.env.DSH_HOME, 'profiles', 'web', 'node_modules'))
+  if (process.env.APPDATA) cands.push(join(process.env.APPDATA, 'Roaming', 'npm', 'node_modules', '@deepseek-ai', 'dsh', 'node_modules'))
+  cands.push(join(PLUGIN_DIR, '..', 'node_modules'), join(PLUGIN_DIR, 'node_modules'))
+  for (const c of cands) {
+    try {
+      if (existsSync(join(c, '@deepseek-ai', 'dsh-agent-presets'))) return join(c, '@deepseek-ai')
+    } catch { /* next */ }
+  }
+  return join(cands[cands.length - 1] ?? '.', '@deepseek-ai')
+})()
+const R = pathToFileURL(join(DSH_PKGS, '')).href
 const disc = await import(R + 'dsh-agent-presets/lib/types/discovery.js')
 // ⚠️ **harnessBase 不能省**：`discovery.js:158` 对 package 行会 `fileURLToPath(harnessBase)`
 //   ⇒ 传 `undefined` 会 `ERR_INVALID_ARG_TYPE` 崩掉（我第一版就是）。真调用方（AgentPresets）
 //   永远会给它（= 宿主组合的 baseUrl）⇒ 这里照真值给。
-const HARNESS_BASE = 'file:///C:/Users/Eldwen/.dsh/profiles/web/'
+const HARNESS_BASE = process.env.DSH_HOME
+  ? pathToFileURL(join(process.env.DSH_HOME, 'profiles', 'web') + sep).href
+  : pathToFileURL(join(PLUGIN_DIR, '..') + sep).href
 const found = await disc.discoverPresets([{ path: installed, trust: 'user' }], HARNESS_BASE)
 const byId = new Map(found.map((p) => [p.id, p]))
 for (const name of ['verify-lite', 'verify-full']) {
@@ -132,7 +152,7 @@ for (const name of ['verify-lite', 'verify-full']) {
   const ctx = new Context()
   await ctx.plugin(loaderMod.default ?? loaderMod.Loader)
   // ⚠️ baseUrl **必须在装完 loader 之后**设（loader 构造会覆盖它）—— task-55 实测过
-  ctx.baseUrl = 'file:///C:/Users/Eldwen/.dsh/profiles/web/'
+  ctx.baseUrl = HARNESS_BASE
   ctx.loader.builtins['group'] = loaderMod.EntryGroup ?? loaderMod.Group
   const sc = createScope(ctx, {})
   let err
