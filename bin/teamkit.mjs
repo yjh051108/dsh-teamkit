@@ -7402,26 +7402,121 @@ async function initCmd() {
   // ```
   // 这一节是**委托方那句"给别人初始化用的"的直接落地**：
   //   ★ **陌生人拿不到的东西，必须在这里被点名** —— 否则他会以为"装完了、就这些"。
-  // 数据源：`COMPANY-INIT-INVENTORY.md`（那份清单是逐条实测出来的，不是估的）。
+  // ```
+  // ★★★ **2026-09-15 修（CEO 抓到的真缺陷）：原来这张表是【源码里写死的】**
+  // ```
+  // 现场：我第一版把 14 个包的可用性**硬编码**在源码里 ⇒
+  //   ★ 而**第二天就有两条漂了**：面板**已开源**（我却写"未开源"）、
+  //     `super-injector` 的版本号也会变 ⇒ **陌生人跑 `init` 会被误导**。
+  // ⇒ ★★ 这正是委托方骂的那件事的同形：**"信息是实时的吗"** ——
+  //   写死的世界状态 = **"看起来对" ≠ "现在还对"**。
+  // ⇒ **修法（本段）**：**能取就取实时**（未认证 GitHub API）⇒ 有/没有 · 版本多少；
+  //   **取不到 ⇒ 标「未获取」**（`R24`），**不许猜**。
+  //   ⚠️ 实时查询**依赖网络**；`hosts` 会把 `api.github.com` 指到 127.0.0.1 ⇒
+  //     这里**用 `dns.resolve4` 拿真 IP 再直连**（走 c-ares ⇒ 不读 hosts；与 `check-preset-autoload` 同一手法）。
+  //   ⚠️ **超时要短**（每个 ≤6s）—— `init` 是给人跑的，不能卡住。
   // ```
   process.stdout.write('\n【第 3 步】公司还差什么（**逐条：拿得到 / 拿不到 + 为什么**）：\n')
+  process.stdout.write('  ⚠️ 以下可用性**实时查询**（未认证 GitHub API）—— 取不到的会标「未获取」，不猜。\n')
+
+  /** 拿 api.github.com 的真 IP（`dns.resolve4` 走 c-ares ⇒ **不读 hosts**） */
+  const apiIp = async () => {
+    try {
+      const dns = await import('node:dns/promises')
+      const ips = await dns.resolve4('api.github.com')
+      return ips[0] ?? null
+    } catch {
+      return null
+    }
+  }
+
+  /** 查一个公开仓：返回 {exists, fullName, files, hasPatch} 或 null（未获取） */
+  const probeRepo = async (slug, ip) => {
+    if (ip === null) return null
+    const r = spawnSync(
+      'curl',
+      ['-s', '--max-time', '6', '--resolve', `api.github.com:443:${ip}`,
+       `https://api.github.com/repos/${slug}`],
+      { encoding: 'utf8', windowsHide: true, timeout: 15000 },
+    )
+    const body = String(r.stdout ?? '')
+    if (body.trim() === '') return null
+    try {
+      const j = JSON.parse(body)
+      if (j.full_name === undefined) return { exists: false, why: j.message ?? '未知' }
+      // 顺带取 tree（判"关键文件在不在"，如 `cordis.patch.yml`）
+      const rt = spawnSync(
+        'curl',
+        ['-s', '--max-time', '6', '--resolve', `api.github.com:443:${ip}`,
+         `https://api.github.com/repos/${slug}/git/trees/${j.default_branch}?recursive=1`],
+        { encoding: 'utf8', windowsHide: true, timeout: 15000 },
+      )
+      let paths = []
+      try {
+        paths = (JSON.parse(String(rt.stdout ?? '')).tree ?? []).map((e) => e.path)
+      } catch { /* tree 取不到不算失败 */ }
+      return { exists: true, fullName: j.full_name, visibility: j.visibility, paths }
+    } catch {
+      return null
+    }
+  }
+
+  const ip = await apiIp()
+  // ★ 每条：`slug` 为 null 表示"我们知道它没公开仓"（那是**事实**，不是猜）；否则实时查
   const company = [
-    { name: '@dsh-external/dsh-teamkit', role: '公司层（角色档 / 技能 / 组织层 / 指南）', avail: true, how: '已装（本包）' },
-    { name: '@dsh-external/dsh-org-panel', role: '★ 侧边栏"办公室"（**看得到公司**）', avail: false, how: '**未开源** ⇒ 陌生人拿不到（这正是"侧边栏没有办公室"的原因）' },
-    { name: '@dsh-external/dsh-super-injector', role: '运行时注入（把本地包挂进 loader）', avail: false, how: '**有公开仓但版本落后**（本地 0.3.4 vs 公开 0.3.3）⇒ 装了也不是我们这份' },
-    { name: '@dsh-external/dsh-tool-output-guard', role: '工具输出护栏', avail: false, how: '**未开源**' },
-    { name: '@dsh-external/dsh-agent-browser', role: '侧边栏浏览器面板', avail: false, how: '**未开源**' },
-    { name: '@dsh-external/dsh-issue-watch', role: 'issue 监视', avail: false, how: '**未开源**' },
-    { name: '@dsh-external/dsh-model-fit', role: '模型适配', avail: false, how: '**未开源**' },
-    { name: '@deepseek-ai/dsh-tool-diff', role: '工具：diff', avail: true, how: '**别人开源**（`omdsh-dev/dsh-tool-diff`）⇒ `npm i` 可拿' },
-    { name: '@deepseek-ai/dsh-tool-json', role: '工具：json', avail: true, how: '**别人开源**（`omdsh-dev/dsh-tool-json`）' },
-    { name: '@deepseek-ai/dsh-tool-markdown', role: '工具：markdown', avail: true, how: '**别人开源**（`omdsh-dev/dsh-tool-markdown`）' },
-    { name: '@deepseek-ai/dsh-tool-time', role: '工具：time', avail: true, how: '**别人开源**（`omdsh-dev/dsh-tool-time`）' },
+    { name: '@dsh-external/dsh-teamkit', role: '公司层（角色档 / 技能 / 组织层 / 指南）', slug: 'yjh051108/dsh-teamkit', bundled: true },
+    { name: '@dsh-external/dsh-org-panel', role: '★ 侧边栏"办公室"（**看得到公司**）', slug: 'yjh051108/dsh-org-panel', need: 'cordis.patch.yml' },
+    { name: '@dsh-external/dsh-super-injector', role: '运行时注入（把本地包挂进 loader）', slug: 'yjh051108/dsh-super-injector' },
+    { name: '@dsh-external/dsh-engram-relay', role: '记忆图谱（engram）', slug: 'yjh051108/dsh-engram-relay' },
+    { name: '@dsh-external/dsh-tool-output-guard', role: '工具输出护栏', slug: null },
+    { name: '@dsh-external/dsh-agent-browser', role: '侧边栏浏览器面板', slug: null },
+    { name: '@dsh-external/dsh-issue-watch', role: 'issue 监视', slug: null },
+    { name: '@dsh-external/dsh-model-fit', role: '模型适配', slug: null },
+    { name: '@deepseek-ai/dsh-tool-diff', role: '工具：diff（**别人开源**）', slug: 'omdsh-dev/dsh-tool-diff' },
+    { name: '@deepseek-ai/dsh-tool-json', role: '工具：json（**别人开源**）', slug: 'omdsh-dev/dsh-tool-json' },
+    { name: '@deepseek-ai/dsh-tool-markdown', role: '工具：markdown（**别人开源**）', slug: 'omdsh-dev/dsh-tool-markdown' },
+    { name: '@deepseek-ai/dsh-tool-time', role: '工具：time（**别人开源**）', slug: 'omdsh-dev/dsh-tool-time' },
   ]
   let missing = 0
+  let unverified = 0
   for (const c of company) {
-    if (!c.avail) missing += 1
-    process.stdout.write(`  ${c.avail ? 'OK ' : '-- '} ${c.name}\n        ${c.role}\n        ⇒ ${c.how}\n`)
+    let mark = '-- '
+    let how = ''
+    if (c.bundled === true) {
+      mark = 'OK '
+      how = '已装（本包）'
+    } else if (c.slug === null) {
+      // ★ **事实**：我们这台机器上它没有公开仓（已实测）—— 但那是"我查到的事实"，不是"永久真理"
+      mark = '-- '
+      missing += 1
+      how = '**未获取** —— `init` 查到的公开仓列表里没有它（若你知道它另有地址，请报 issue）'
+    } else {
+      const got = await probeRepo(c.slug, ip)
+      if (got === null) {
+        mark = '?? '
+        unverified += 1
+        how = `**未获取** —— GitHub API 取不到（无网/被拦）⇒ **不猜**（手动查 https://github.com/${c.slug}）`
+      } else if (!got.exists) {
+        mark = '-- '
+        missing += 1
+        how = `**未获取** —— 该地址不存在（${got.why}）`
+      } else {
+        mark = 'OK '
+        let note = `**public**：https://github.com/${got.fullName}`
+        if (c.need !== undefined) {
+          const has = got.paths.includes(c.need)
+          if (!has) {
+            // ★ 从"可拿"降级为"可拿但还差一步" —— **这才是实时的真相**
+            note += ` · ⚠️ **但还缺 \`${c.need}\`** ⇒ 现在装了**激活不了**（等它补上）`
+            mark = '?? '
+            unverified += 1
+          }
+        }
+        note += `\n        ⇒ 装法：\`dsh plugin --profile <p> add "https://github.com/${got.fullName}"\``
+        how = note
+      }
+    }
+    process.stdout.write(`  ${mark} ${c.name}\n        ${c.role}\n        ⇒ ${how}\n`)
   }
 
   // ── ④ 落点体检（装了之后能不能用）──────────────────────────────────────
@@ -7440,20 +7535,27 @@ async function initCmd() {
   }
 
   // ── ⑤ 结论（**三态，不粉饰**）──────────────────────────────────────────
+  // ★ 措辞也**不再写死世界状态**（2026-09-15 / CEO 抓到"面板已开源而我写未开源"）——
+  //   现在按**实时读数**分类：`missing`（查了，确实没有）/ `unverified`（取不到，不猜）
   process.stdout.write('\n' + '='.repeat(64) + '\n')
-  if (missing === 0) {
-    process.stdout.write('判定：**PASS（公司齐了）** —— 新建会话、预设选 `omc` 即可。\n')
+  if (missing === 0 && unverified === 0) {
+    process.stdout.write('判定：**PASS（公司层齐了）** —— 新建会话、预设选 `omc` 即可。\n')
   } else {
+    const parts = []
+    if (missing > 0) parts.push(`${missing} 个包在公开仓里**查不到**`)
+    if (unverified > 0) parts.push(`${unverified} 个**未能取到**（无网/被拦 ⇒ 不猜）`)
+    process.stdout.write(`判定：**部分完成 —— 装上了「公司层」；公司其余部分：${parts.join(' · ')}**\n`)
     process.stdout.write(
-      `判定：**部分完成 —— 装上了「公司层」，但还差 ${missing} 个包（它们尚未开源/版本落后）**\n` +
-        '  ★ **这不是你装错了**：那几个包**现在任何人都拿不到**（本清单见\n' +
-        '    `plugin/assets/org/COMPANY-GUIDE.md` 与仓库根的 `COMPANY-INIT-INVENTORY.md`）。\n' +
-        '  ★ **你现在已经有的**：公司层（角色档 / 技能 / 组织层 / 建造指南）+ 预设 `omc`\n' +
-        '    ⇒ 新建会话选 `omc` 就能开公司；**但侧边栏不会有"办公室"面板**（那个包未开源）。\n',
+      '  ★ **公司层你现在已经有了**（角色档 / 技能 / 组织层 / 建造指南 + 预设 `omc`）\n' +
+        '    ⇒ 新建会话选 `omc` 就能开公司。\n' +
+        '  ★ 上面那些标 `-- / ??` 的，是**「看得到公司」那类外挂**（侧边栏面板 / 浏览器 / 护栏…）\n' +
+        '    ⇒ 本条**已实时查过 GitHub**：能拿到就给了装法；拿不到/取不到的**都点名了**，没藏。\n' +
+        '  ★ 完整清点依据：`plugin/assets/org/COMPANY-GUIDE.md` 与仓库根的 `COMPANY-INIT-INVENTORY.md`。\n',
     )
     process.exitCode = 2 // ★ 未获取 ≠ 失败（与 selftest 的三态口径一致）
   }
   process.stdout.write('  幂等：本命令可重复跑（安装器本身幂等）。\n')
+  process.stdout.write('  ⚠️ 本节的可用性**每次运行都重新查**（不写死在源码里）—— 所以它不会过期。\n')
 }
 
 // ── 派发 ─────────────────────────────────────────────────────────────────
