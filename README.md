@@ -410,6 +410,7 @@ node bin/teamkit.mjs promote --all --source <你的技能仓> --note "这次主�
 | `memberRelease.readonlyTools` | `true` | 只读的 `list_zombies` **单独一档**（"先看得见再动手"） |
 | `memberRelease.requireReason` | `true` | 释放**必须写理由**（拒绝时 `code=2`） |
 | `memberRelease.trackingFile` | `member-release.jsonl` | 侧车台账（**重启后靠它重建**） |
+| `crashGuard.enabled` | **`true`** | ★★ **保命网**：给**宿主进程**的 `process.stdout`/`stderr` 装 `'error'` 监听，**只吞管道断开**（`code` = `EOF`/`EPIPE`）⇒ 宿主不会因"壳不再读它的 stdio"而**自杀**（`Error: write EOF` / `errno -4095`）。⚠️ **别的 error 一律重新抛**（**不掩盖任何别的错误**）；⛔ **不装 `process.on('uncaughtException')`**。★ **可卸**（卸载后监听器计数回原值）· ★ 装/关/失败**各有一条日志**（`grep CRASH-GUARD`）。⚠️ **诚实口径**：它治的是**已证的那一类**（管道断开 —— 对照实验：**pipe 崩、TTY 不崩**）；对现场那次崩溃**未必对症**。**不想要**就设 `false` |
 | `e2r.enabled` | **`false`** | **`E²R` 风险档总闸**：它是本插件里**唯一"可能打断任务板"**的能力 —— 漏放一个 agent scope 的出口 schema ⇒ 那个成员一调 `team_task_list` 就报 `additionalProperties: false`。**默认关** |
 | `e2r.structure` | **`true`** | **零风险**那一档：台账（`e2r.jsonl`）+ `description` 摘要 + 三件工具（`set_task_structure` / `review_task` / `team_structure`）。**只写我们自己的文件、只用底座已有的 `edit` action** ⇒ 装上就有效果 |
 | `e2r.schemaPatch` | **`false`** | 路径 A 的**下级开关**（与 `e2r.enabled` **都 true** 才动）：放开 4 个 team task 工具的 `output.schema`。装完**立刻验**、验不过**整段回滚**（绝不半装） |
@@ -643,6 +644,48 @@ node scripts/probe-real-registry.mjs     # 独立子进程，只读，不碰正�
 
 ---
 
+## 更新（**已经装过的人，怎么拿到新版**）
+
+> ★★ **先看你的版本**（判断"我拿到的是不是新版"的**唯一硬判据** —— 没有它，"更新了"只是感觉）：
+> ```bash
+> node <你的安装位置>/bin/teamkit.mjs version     # 或 `teamkit version`
+> #   ⇒ 打印 `@dsh-external/dsh-teamkit <版本号>`（本版是 0.1.1）
+> ```
+
+### 一条能照抄的更新命令
+
+```bash
+# ① 拉最新（公开仓）
+git clone https://github.com/yjh051108/dsh-teamkit.git /tmp/dsh-teamkit   # 或 git pull（已 clone 过）
+#    ⚠️ 没有 git ⇒ 到 https://github.com/yjh051108/dsh-teamkit 点 "Code → Download ZIP" 解压也行。
+
+# ② 重新装插件（**先卸载旧版更干净**）
+dsh plugin --profile web remove @dsh-external/dsh-teamkit      # 卸旧（可选，但推荐）
+dsh plugin --profile web add "/tmp/dsh-teamkit"                # 装新（**绝对路径**，不是 file:）
+
+# ③ 重装"资产"（角色档/技能/组织层/预设 —— 插件只是机制，这些才是内容）
+cd /tmp/dsh-teamkit && node tools/install-teamkit.mjs
+
+# ④ 重启 DSH（或新开一个会话）⇒ 让新代码生效
+```
+
+> ⚠️ **两个已实测的坑**（会在第 ② 步撞到，且报错**看不出是缺前置**）：
+> · **`pnpm` 必须在 PATH 上** —— `dsh plugin` 是**转发给 pnpm** 的；不在时只报
+>   `'pnpm' is not recognized`。
+> · **给绝对路径，不要 `file:./…`** —— 实测 `file:D:/…` 报
+>   `ENOENT: scandir '…\profiles\web\D:\…'`（pnpm 按 **profile 目录**解析相对路径）。
+
+### 怎么知道"我更新成功了"
+
+| 判据 | 读法 |
+|---|---|
+| **版本号变了** | `teamkit version` ⇒ `0.1.0` → **`0.1.1`** |
+| **新文件在了** | 安装目录下 `lib/crash-guard.js`（**0.1.1 新增**） |
+| **新命令可用** | `teamkit init` 有输出（**0.1.1 新增**） |
+| **自测三态** | `node <安装位置>/bin/teamkit.mjs selftest` ⇒ `PASS` 或 `UNVERIFIED`（**不许 FAIL**） |
+
+> ★ **若 `version` 还是旧号** ⇒ 第 ② 步没真装上新包（多半是路径或 pnpm 那条坑）。
+
 ## 维护
 
 ### 单一事实来源（7 条方法技能）
@@ -683,6 +726,30 @@ node scripts/sync-skills.mjs --check   # 只检查漂移（CI 用；漂移 ⇒ �
 ---
 
 ## 限制（**开源必读 —— 装了才发现最难受**）
+
+### 0. ★★ 本插件给宿主进程装了一层「**仅针对管道断开**」的保命网
+
+> **背景（实测事故，2026-09-15）**：桌面壳用 **pipe** 抓 dsh 子进程的 stdout/stderr
+> （`D:\dsh\desktop\main.js:169` 的 `spawn(...)` **不给 `stdio`** ⇒ Node 默认 `'pipe'`），
+> 而**壳只给它自己装了防护**（`:17 for (const s of [process.stdout, process.stderr]) s.on('error', () => {})`），
+> **没有保护它 spawn 出去的 dsh 子进程** ⇒ 管道被关后，子进程下一次 write 抛**未捕获 `'error'`** ⇒
+> **进程自杀**（`Error: write EOF` / `Emitted 'error' event on Socket instance` / `errno -4095, code 'EOF'`）。
+> **实测 5 起**（`09-12×2` · `09-14×1` · `09-15×2`）。
+>
+> **本插件做什么**：给 `process.stdout` / `process.stderr` 装 `'error'` 监听，
+> **只吞管道断开那一族**（`code === 'EOF' | 'EPIPE'`，或 `errno === -4095` 且栈含 `Socket`/`WriteWrap`）。
+> **别的 error 一律重新抛** ⇒ **不掩盖任何别的错误**（普通 bug 照样崩）。
+> ⛔ **我们【不装】`process.on('uncaughtException')`** —— 那会吞掉**所有**异常，含我们自己的 bug。
+> ★ **可卸**：卸载插件后监听器计数回到原值（`stdout.listenerCount('error')`：装前 N → 装后 N+1 → 卸后 N）。
+> 关掉它的开关：配置 `crashGuard.enabled = false`。
+>
+> **边界（诚实口径）**：
+> · 它**只治症状**（宿主不因管道断开而自杀）；**根因在桌面壳那一侧**（给 `spawn` 传 `stdio` 或先 detach 再关读端）——
+>   **那是 `D:\dsh\desktop`，不是本仓**，我们**不越界去改**，只上报。
+> · 我的复现**产出的是 `EPIPE: broken pipe, write`**，而现场是 **`write EOF`** ——
+>   两者是**同一族**（往已断的管道写），Node 在不同时机给不同 errno ⇒ 判据按**族**判。
+> · 能红证据：`tools/crash-guard-test.mjs` ⇒ **PASS 12/12**（四条判据全双向：装/不装 · 管道断/`TypeError` ·
+>   装前中后计数 · 非管道类 `EBADF` 照旧抛 · 正常 `console.log` 照常出去）。
 
 ### 1. 成员**只增不删**（底座限制，不是本插件的选择）
 
@@ -907,6 +974,7 @@ plugin/
     probe-gate.js              # ★ R2 在线拦：注册 `ctx.tools.guard()`，装 dev_stage_add 前必过闸（默认开）
     recover.js                 # ★ 重启后恢复（`task-106` B 段）：板重放比对 + goal 只读清单 + 活跃度适配器
     orphans.js                 # ★ 孤儿任务规则本体（`task-107`）：`analyzeOrphans` / `crossCheckLiveness`（纯函数）
+    crash-guard.js             # ★★ 保命网：给本进程 stdout/stderr 装"仅管道断开(EOF/EPIPE)"的 error 监听（可卸）
     index.js                   # 插件入口（agent/created + agent/pre-step + ctx.effect）
   tools/
     install-teamkit.mjs        # ★ 用户侧安装器：skills / talents / roles / 组织层文件 / preset（幂等、可卸净）
