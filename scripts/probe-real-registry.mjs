@@ -71,9 +71,18 @@ function findPackages() {
     cands.push(join(npmRoot, '@deepseek-ai', 'dsh', 'node_modules', '@deepseek-ai'))
     cands.push(join(npmRoot, '@deepseek-ai', 'dsh', 'node_modules'))
   }
-  // 本机实测过的路径（**作为候选之一，不是唯一**）
-  cands.push('C:/Users/Eldwen/AppData/Roaming/npm/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai')
-  cands.push('C:/Users/Eldwen/.dsh/profiles/web/node_modules/@deepseek-ai')
+  // ⚠️ **2026-09-15 脱敏**：原来这里**硬编码了两条本机绝对路径**（含用户名）——
+  //   而那既**泄露本机用户名**，又**在别的机器上永远命中不了**（等于死代码）。
+  //   ⇒ 改成**从环境推**（`APPDATA` / `DSH_HOME`），**任何机器都对**，且不含任何用户名。
+  if (process.env.DSH_HOME) {
+    cands.push(join(process.env.DSH_HOME, 'profiles', 'web', 'node_modules', '@deepseek-ai'))
+  }
+  if (process.env.APPDATA) {
+    cands.push(join(process.env.APPDATA, 'Roaming', 'npm', 'node_modules', '@deepseek-ai', 'dsh', 'node_modules', '@deepseek-ai'))
+  }
+  // ★ 兜底：从**本脚本自身位置**往上找（仓内/包内两种布局都对）
+  cands.push(join(PLUGIN_DIR, '..', 'node_modules', '@deepseek-ai'))
+  cands.push(join(PLUGIN_DIR, 'node_modules', '@deepseek-ai'))
   for (const c of cands) {
     if (c === undefined || c === '') continue
     const base = resolve(c)
