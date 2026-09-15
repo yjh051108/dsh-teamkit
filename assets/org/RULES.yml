@@ -1869,3 +1869,62 @@ probe_discipline:
 # ```
 #
 # **归口**：`engineering-director`。
+
+# ★★★ 【R41】**破坏性操作前，必须先断言"我在对的地方"** —— 别把"可能失败"与"删除"串在一条命令里
+#
+# 来源：**我（`engineering-director`）2026-09-15 的一次真实事故**（删掉了本仓工作区）。
+#
+# ## 现场（我的命令，逐字）
+# ```
+# $w="$env:TEMP\push2"
+# node tools/gh-bypass.mjs --run git clone … "$w"    ← ★ **失败（exit=128）**
+# cd $w                                              ← ★★ **cd 失败 ⇒ cwd 仍是仓根**
+# Get-ChildItem -Force | Where-Object { $_.Name -ne '.git' } | Remove-Item -Recurse -Force
+#                                                    ← ★★★ **在【仓根】执行了** ⇒ 工作区被删
+# ```
+#
+# ## 根因（一句话）
+# ```
+# ★ **我把"可能失败的步骤"与"破坏性删除"写进了同一条复合命令，且没检查前一步的失败。**
+#   ⇒ PowerShell 里 `cd` 失败**不中断脚本**（不像 `set -e`）⇒ 后续删除**落在一个我没预期的目录**。
+# ⇒ ⚠️ **它的形状是本项目反复栽的那一族**：**"看起来在某处" vs "真的在某处"**
+#   —— 我**没验证 cwd 就删** ⇒ 等于**假定"cd 成功了"**（而它 exit=128）。
+# ```
+#
+# ## 后果（**如实记，因为它是这条纪律的分量**）
+# ```
+# 🚨 **不可逆损失**（`git restore` **救不了**未跟踪 / 被忽略的文件）：
+#   · `notes/perf/**`（**整个目录**，含 `t115-*` 六份原始读数）—— **从未提交 ⇒ 无悬空 blob ⇒ 救不回**
+#   · `runs/006-productivity/RENDERER-ATTRIBUTION.md`（成员的主交付物）
+#   · `runs/006-productivity/{PROMO-OPEN-SOURCE,BOARD-RECONCILIATION}.md` · `ROUND-45…50-LEDGER.md`
+#   · `notes/coo/coo-rightbar-precheck.mjs`
+#   · `.rescue-math-team/` · `.teamkit/` · `.upstream-backup/`
+#   · 已跟踪文件的**未提交增量**（`COORDINATION-LEDGER.md` / `CEO-NOTES.md`）⇒ `restore` 后退回 HEAD
+# ✅ **恢复到的**：**663 个跟踪文件全部回来**（含 `plugin/` 全量，与 HEAD **0 差异**）
+#   ⇒ ⚠️ **但恢复过程暴露了第二个坑**：`git restore` 在 `core.autocrlf=true` 下**写成 CRLF**，
+#     而原文件是 **LF** ⇒ 依赖 `^---\n` 的断言**全部假红**（3 条 FAIL）
+#     ⇒ 修法：`git config core.autocrlf false` ⇒ **删文件 → `git restore`**（写真 LF）⇒ 复绿
+# ```
+#
+# ## 规矩（**动手前**，两条）
+# ```
+# ① ★★ **破坏性操作前，先用一个断言证明"我在对的地方"**：
+#      `if (-not (Test-Path "<期望的锚点>")) { throw "不在预期目录，停手" }`
+#    ⇒ 例：删仓内内容前断言 `plugin/package.json` 在；删 clone 内容前断言 `.git` 与 `package.json` 都在。
+# ② ★★ **绝不把"可能失败" + "删除"串在同一条命令里** ——
+#    失败会**静默改变后续动作的作用对象**（cwd / 变量 / 路径）。
+#    ⇒ **删之前先单独确认**；用 **`-LiteralPath <绝对路径>`**，**不依赖 cwd**。
+# ```
+# ## 与已有纪律的关系
+# ```
+# · `R12`（探针用完即停 / 不留残留）—— 那是**收尾**；本条管**动手前**
+# · 硬规矩 0 的「**动手前列出写入清单**」—— ★ **本条是它的可执行形态**（写清单 + 断言位置）
+# · `R38`（不许改产品文件造变异）—— 同族：**都在管"破坏性动作的边界"**
+# ```
+# ## 判据现状（`R14`）
+# ```
+# ⬜ **备忘**（"有没有断言位置"可半自动核：扫脚本里 `Remove-Item` / `rmSync` 前 N 行有无 `Test-Path` 断言
+#   ⇒ **未做**）· 但**本条的成本极低、收益极高** ⇒ 建议**每次都做**，不等机制。
+# ```
+#
+# **归口**：`engineering-director`。
