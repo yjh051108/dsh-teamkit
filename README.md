@@ -649,7 +649,7 @@ node scripts/probe-real-registry.mjs     # 独立子进程，只读，不碰正�
 > ★★ **先看你的版本**（判断"我拿到的是不是新版"的**唯一硬判据** —— 没有它，"更新了"只是感觉）：
 > ```bash
 > node <你的安装位置>/bin/teamkit.mjs version     # 或 `teamkit version`
-> #   ⇒ 打印 `@dsh-external/dsh-teamkit <版本号>`（本版是 0.1.1）
+> #   ⇒ 打印 `@dsh-external/dsh-teamkit <版本号>`（本版是 0.1.2）
 > ```
 
 ### 一条能照抄的更新命令
@@ -679,9 +679,10 @@ cd /tmp/dsh-teamkit && node tools/install-teamkit.mjs
 
 | 判据 | 读法 |
 |---|---|
-| **版本号变了** | `teamkit version` ⇒ `0.1.0` → **`0.1.1`** |
-| **新文件在了** | 安装目录下 `lib/crash-guard.js`（**0.1.1 新增**） |
-| **新命令可用** | `teamkit init` 有输出（**0.1.1 新增**） |
+| **版本号变了** | `teamkit version` ⇒ **`0.1.2`** 是本版 |
+| **新文件在了** | 安装目录下 `lib/crash-guard.js`（**0.1.1 起**） |
+| **新命令可用** | `teamkit init` 有输出（**0.1.1 起**）· 且它**实时查 GitHub**（**0.1.2 起**，不再写死） |
+| **预设提示词带"不空等"** | `presets/omc/agent.cordis.yml` 里搜 `Do not idle-wait`（**0.1.2 新增**） |
 | **自测三态** | `node <安装位置>/bin/teamkit.mjs selftest` ⇒ `PASS` 或 `UNVERIFIED`（**不许 FAIL**） |
 
 > ★ **若 `version` 还是旧号** ⇒ 第 ② 步没真装上新包（多半是路径或 pnpm 那条坑）。
