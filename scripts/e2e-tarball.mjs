@@ -26,6 +26,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { tmpdir } from 'node:os'
+import { createHash } from 'node:crypto'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const PLUGIN_DIR = resolve(HERE, '..')
@@ -90,6 +91,66 @@ try {
   // 组织层（此前静默没装的那一项）
   for (const f of ['TALENTS.yml', 'RULES.yml']) {
     check(existsSync(join(fakeHome, 'teamkit', f)), `组织层 ${f} 装上了`, existsSync(join(fakeHome, 'teamkit', f)) ? 'ok' : '缺')
+  }
+  // ── 4b. ★★★ **公司建造指南**：四道门全过（2026-09-15 / `task-117`）────────────
+  // 【为什么单独一条】`assets/org/COMPANY-GUIDE.md` 是**从零建公司**的入口 ——
+  //   ★ 而它**极易"写对了却送不到"**，且**四道门各自会静默失败**：
+  //   ```
+  //   ① `files` 白名单 —— "放同目录" **不会**自动带上（CEO 最小实测：`files:['README.md']` +
+  //      同目录 `COMPANY-GUIDE.md` ⇒ **不进 tgz**，且**不报错、不警告**）
+  //   ② `sync-assets` 会**删多余**（`sync-assets.mjs:133` `rmSync(extra)`）——
+  //      若 `assets/org/` 被当 `dir` 管 ⇒ 指南在下次同步时**被静默删掉**
+  //   ③ `npm pack` 出来之后，**装**这一步还要点名它 ——
+  //      原 `ORG_SRC = ['TALENTS.yml','RULES.yml']` **写死两项** ⇒ **新增文件装不到用户机器**
+  //      （我实测：探针放 `assets/org/` ⇒ 隔离装完 `<fakeHome>/teamkit/` 里**没有它**）
+  //   ④ 装了还要**在真机找得到**（落点）
+  //   ⇒ ★ 所以本组**四条一起判**，且**每条都能红**（见 `e2e-guide-mutation.mjs`）。
+  // ```
+  const GUIDE = 'COMPANY-GUIDE.md'
+  const GUIDE_IN_PKG = join(pkgDir, 'assets', 'org', GUIDE)
+  const GUIDE_IN_HOME = join(fakeHome, 'teamkit', GUIDE)
+  // ① 进得了包（白名单 + 真 pack 后的包内容 —— 不是"看白名单应该会带"）
+  check(existsSync(GUIDE_IN_PKG), `① 公司建造指南**进得了 tgz**（\`assets/org/${GUIDE}\`）`, existsSync(GUIDE_IN_PKG) ? 'ok' : '**缺** ⇒ 检查 package.json 的 files 是否含 assets')
+  // ② 装得到真机（`ORG_SRC` 要扫目录，不能写死名单）
+  check(existsSync(GUIDE_IN_HOME), `② 指南**装到了 \`$DSH_HOME/teamkit/\`**（装机落点）`, existsSync(GUIDE_IN_HOME) ? 'ok' : '**缺** ⇒ `ORG_SRC` 可能又写死了文件名')
+  // ③ sha 与包内一致（防"装了个旧的/截断的"）
+  {
+    const a = existsSync(GUIDE_IN_PKG) ? createHash('sha256').update(readFileSync(GUIDE_IN_PKG)).digest('hex').slice(0, 16) : '(包内缺)'
+    const b = existsSync(GUIDE_IN_HOME) ? createHash('sha256').update(readFileSync(GUIDE_IN_HOME)).digest('hex').slice(0, 16) : '(落点缺)'
+    check(a !== '(包内缺)' && a === b, '③ 落点的教程 **sha 与包内一致**（没收错/没截断）', `包内=${a} 落点=${b}`)
+  }
+  // ④ 非空且有实质内容（防"占位空文件"混过前三门）
+  {
+    const n = existsSync(GUIDE_IN_HOME) ? readFileSync(GUIDE_IN_HOME, 'utf8').length : 0
+    check(n > 2000, `④ 指南**非空且有实质内容**（>2000 字符）`, `${n} 字符`)
+  }
+  // ⑤ ★★ **`--check` 也必须核它**（2026-09-15 修的第二个真缺口）
+  // ```
+  // 【现场】原 `--check` **只在输出里列了组织层的文件名**，**从不比对内容** ⇒
+  //   我篡改落点的 `COMPANY-GUIDE.md` ⇒ `--check` **仍然 exit=0** ⇒
+  //   ★ **"列了名字" ≠ "核了内容"**（`R5` 家族：看着像核过了）。
+  //   ⚠️ 而 `--check` 的定位就是「**不安装也能发现问题**」⇒ 漏核组织层 = 它的一半职责失效。
+  // 【本条判据】篡改落点 ⇒ `--check` **必须退出码 1**（不是 0）
+  //   ⇒ ★ 且**必须指名那个文件**（否则用户不知道哪份不一致）
+  // ```
+  if (existsSync(GUIDE_IN_HOME)) {
+    const orig = readFileSync(GUIDE_IN_HOME, 'utf8')
+    try {
+      writeFileSync(GUIDE_IN_HOME, '# 故意篡改（e2e 检查 --check 能不能发现）\n', 'utf8')
+      let out5 = ''
+      let code5 = 0
+      try {
+        out5 = run(process.execPath, [installer, '--check'], { env: { ...process.env, DSH_HOME: fakeHome } })
+        code5 = 0
+      } catch (e) {
+        out5 = String(e.stdout ?? '') + String(e.stderr ?? '')
+        code5 = e.status ?? -1
+      }
+      check(code5 !== 0, '⑤ 篡改落点后 `--check` **不再报 0**（它真的核内容）', `exit=${code5}`)
+      check(new RegExp(GUIDE).test(out5), '⑤ `--check` **指名了**哪份不一致', new RegExp(GUIDE).test(out5) ? 'ok' : '没指名')
+    } finally {
+      writeFileSync(GUIDE_IN_HOME, orig, 'utf8') // ★ 还原（后续断言仍要用它的正确内容）
+    }
   }
   // ── 5. 装出来的预设是**可移植**的 ───────────────────────────────────────
   const preset = join(fakeHome, '.agent-presets', 'omc', 'agent.cordis.yml')

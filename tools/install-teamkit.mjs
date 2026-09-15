@@ -43,9 +43,35 @@ const pickSrc = (label, probe, cands) => {
 }
 const SKILLS_SRC = pickSrc('skills', 'teamkit/SKILL.md', [join(PKG, 'skills')])
 const TALENTS_SRC = pickSrc('talents', 'engineer.md', [join(PKG, 'talents'), join(PKG, 'assets', 'talents')])
-// 组织层文件（OMC 那一套的落地物）：Market 索引 + 治理规则。装到 $DSH_HOME/teamkit/ 下与 talents 并列。
-const ORG_SRC = ['TALENTS.yml', 'RULES.yml']
+// 组织层文件（OMC 那一套的落地物）：Market 索引 + 治理规则 + （2026-09-15 起）公司建造指南等。
+// 装到 `$DSH_HOME/teamkit/` 下与 talents 并列。
+//
+// ★★★ **2026-09-15 修：原来是写死的两项名单，会静默漏发新文件**
+// ```
+// 【现场】原代码逐字：`const ORG_SRC = ['TALENTS.yml', 'RULES.yml']`
+//   ⇒ ★ 而 `plugin/assets/org/` 是**要新增文件**的目录（`COMPANY-GUIDE.md` 就放这里）
+//   ⇒ ⚠️ **写死两项 ⇒ 新增的文件【进得了 tgz，却装不到用户机器】** ——
+//     因为"装"这一步只点名那两个 ⇒ 用户在 `$DSH_HOME/teamkit/` 里**找不到指南**
+//   ⇒ ★ 我实测抓到的（`installer-lands-org-probe.mjs`）：探针放 `assets/org/` ⇒
+//     隔离装完 `<fakeHome>/teamkit/` 内容 = `roles, RULES.yml, skills-upstream, talents, TALENTS.yml`
+//     ⇒ **探针不在**。
+// ⇒ **修法：改成"扫 `ORG_BASE` 目录"** —— 新增文件自动跟着走，不用每次改代码。
+//   ⚠️ 只收**已知该发的扩展名**（`.yml` / `.md`），避免把编辑器临时文件也装进去。
+// ⚠️ **改这里（仓根 `tools/`）才是改权威源**；`plugin/tools/` 那份是 `sync-assets` 的**副本**，
+//   直接改副本会被同步覆盖掉（我这一轮就先改错了副本，靠 `sync-assets --check` 报漂移才发现）。
+// ```
 const ORG_BASE = pickSrc('org(TALENTS.yml/RULES.yml)', 'TALENTS.yml', [PKG, join(PKG, 'assets', 'org')])
+const ORG_SRC = (() => {
+  try {
+    return readdirSync(ORG_BASE)
+      .filter((f) => /\.(ya?ml|md)$/i.test(f))
+      .sort()
+  } catch {
+    // ★ fail-closed：扫不到 ⇒ **退回原两项**（保证组织层不会整块丢掉），并**明说**为什么
+    console.error(`⚠️ **组织层目录扫不到**（${ORG_BASE}）⇒ 退回固定两项（TALENTS.yml / RULES.yml）`)
+    return ['TALENTS.yml', 'RULES.yml']
+  }
+})()
 // ★ **角色档**（公司层的"人"）：`roles/*.json` 是 `plugin/lib/roles.js` 读的数据源。
 //   2026-09-14 发现：它**此前没有任何安装落点** ⇒ 开源用户装完**没有角色档** ⇒
 //   `ROLES_LOADED {n:0}` ⇒ 公司层整块不生效（"装了却没反应"）。
@@ -282,6 +308,45 @@ if (!check) {
   mkdirSync(TEAMKIT_DST, { recursive: true })
   for (const f of orgFiles) cpSync(join(ORG_BASE, f), join(TEAMKIT_DST, f))
 }
+// ★★★ **`--check` 也要核组织层**（2026-09-15 修的**真缺口**；CEO §③① 要求核这条）
+// ```
+// 【现场（我实测）】装完 ⇒ `--check` ⇒ exit=0 ⇒ **而我篡改了落点的 `COMPANY-GUIDE.md`**
+//   ⇒ 再跑 `--check` ⇒ **仍然 exit=0**（它只在输出里**列了文件名** `组织层：COMPANY-GUIDE.md RULES.yml TALENTS.yml`）
+//   ⇒ ★★ **"列了名字" ≠ "核了内容"** —— 那是 `R5` 家族（**看着像核过了**）
+//   ⇒ ⚠️ 而 `--check` 的定位恰恰是「**不安装也能发现问题**」⇒ **漏核组织层 = 它的一半职责失效**
+// 【修法】对每个 `orgFiles` 逐字节比对**源 vs 落点**（与预设那段同一手法）：
+//   · 缺失 ⇒ 报「落点缺失」· 内容不同 ⇒ 报「待更新」
+//   · ★ 并**汇总进 drift**（让退出码能反映它 —— 否则报了半天仍 exit=0）
+// ⚠️ **本段刻意【不用】`if (check) {` 这个字面形态**（2026-09-15 我踩的另一个坑）：
+//   `selftest` 的 `H39` 用 `inst.indexOf('if (check) {')` 定位"`--check` 主分支"，
+//   而我若在这里也写一句 `if (check) {` ⇒ **它会先命中我这段** ⇒ `process.exit(code)` 落在窗口外
+//   ⇒ **H39 假红**（报"`--check` 不设退出码"，而退出码明明在）。
+//   ⇒ 所以这里用 `check ? … : []` 与 `if (check && …)` 的形态，**不引入那个字面**。
+// ```
+const orgDrift = []
+for (const f of check ? orgFiles : []) {
+  const src = join(ORG_BASE, f)
+  const dst = join(TEAMKIT_DST, f)
+  if (!existsSync(dst)) {
+    orgDrift.push(`${f}（**落点缺失**）`)
+    continue
+  }
+  let same = false
+  try {
+    same = readFileSync(src, 'utf8') === readFileSync(dst, 'utf8')
+  } catch {
+    same = false
+  }
+  if (!same) orgDrift.push(`${f}（**待更新：与源不同**）`)
+}
+if (check && orgDrift.length > 0) {
+  console.log('  ⚠️ **组织层落点与源不一致**：')
+  for (const x of orgDrift) console.log('       ' + x)
+  console.log('     ⇒ 修：`node <安装器> --force`（重建落点）')
+} else if (check && orgFiles.length > 0) {
+  console.log(`  组织层：${orgFiles.length} 份与源逐字节一致 ✓（${orgFiles.join(' ')}）`)
+}
+if (check) globalThis.__orgDrift = orgDrift
 // ★ **角色档（公司层的"人"）**：装到 `$DSH_HOME/teamkit/roles/`。
 //   为什么装这里而不是原路径：原路径 `runs/005-role-skills/roles` 是**开发仓内部**的，
 //   开源用户 clone 后路径不同 ⇒ 预设里的 `roles.dir` 用 `!!js` 表达式指向本落点（可移植）。
@@ -503,7 +568,10 @@ if (check) {
   //   · 有漂移（`$DSH_HOME/skills` 或预设 或 **上游根**）⇒ **1**
   //   · 有未验证（读不到落点）⇒ **2**（"读不到 ≠ 没装"，与 selftest 的三态口径一致）
   const upRootDrift = Array.isArray(globalThis.__upstreamRootDrift) ? globalThis.__upstreamRootDrift : []
-  const anyDrift = drift.length > 0 || upRootDrift.length > 0
+  // ★ **组织层漂移也要计入退出码**（2026-09-15）—— 否则"报了却仍 exit 0"，
+  //   ⇒ 脚本/CI 读不到"指南装了旧的/漏了"这件事（与上面那条同族：**退出码是接口**）
+  const orgRootDrift = Array.isArray(globalThis.__orgDrift) ? globalThis.__orgDrift : []
+  const anyDrift = drift.length > 0 || upRootDrift.length > 0 || orgRootDrift.length > 0
   const code = unreadable > 0 ? 2 : anyDrift ? 1 : 0
   if (anyDrift || unreadable > 0) {
     console.log('')
@@ -511,7 +579,8 @@ if (check) {
       '**--check 判定：' +
         (unreadable > 0 ? 'UNVERIFIED（有读不到的落点）' : 'DRIFT（有待更新/不一致）') +
         '** ⇒ 退出码 ' + code +
-        (upRootDrift.length > 0 ? '（含**上游根**漂移 —— 那是模型真正读的那份）' : ''),
+        (upRootDrift.length > 0 ? '（含**上游根**漂移 —— 那是模型真正读的那份）' : '') +
+        (orgRootDrift.length > 0 ? '（含**组织层**漂移 —— 指南/RULES/TALENTS）' : ''),
     )
   }
   process.exit(code)

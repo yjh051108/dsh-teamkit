@@ -3349,9 +3349,25 @@ const roles = await import('../lib/roles.js')
       '不查 ⇒ 上游根旧了也报"7 条全 OK"、退出码 0 ⇒ **R47 那个"模型读旧版却无报错"复发在状态报告里**',
       hasUpDrift ? '有上游根比对 ✓' : '**不查上游根**')
     // ② `--check` 必须给退出码（不许跑完就结束）
+    // ⚠️ **窗口不能写死**（2026-09-15 我踩的假红）：
+    //   原实现从 `if (check) {` 起截 **6000 字符**，而我在 `--check` 分支里加了一段"组织层漂移比对"
+    //   ⇒ `process.exit(code)` 被推到**距离 11618** ⇒ **超出窗口** ⇒ 断言报"`--check` 不设退出码"
+    //   ⇒ ★★ **而退出码明明在**（就在那里）—— **这是我的窗口太小，不是产品坏了**。
+    //   ⇒ 修法：**窗口按"代码块"取，不按字符数猜** —— 从 `if (check) {` 起做**大括号配平**，取到块尾。
+    //     （同族教训：`H29` 的扫描范围、e2e 的分母 —— **范围写死了，就会漏**）
     const checkBlock = (() => {
       const i = inst.indexOf('if (check) {')
-      return i === -1 ? '' : inst.slice(i, i + 6000)
+      if (i === -1) return ''
+      let depth = 0
+      for (let k = i; k < inst.length; k += 1) {
+        const ch = inst[k]
+        if (ch === '{') depth += 1
+        else if (ch === '}') {
+          depth -= 1
+          if (depth === 0) return inst.slice(i, k + 1)
+        }
+      }
+      return inst.slice(i, i + 40000) // 配平失败 ⇒ 退一个**足够大**的窗口（总比 6000 大）
     })()
     const hasExit = /process\.exit\(code\)/.test(checkBlock)
     CHECK('H39', hasExit,
