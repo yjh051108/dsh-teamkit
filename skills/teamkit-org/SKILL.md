@@ -24,7 +24,7 @@ PRDBench 基线是引用他人报告值而非复跑，**没有层深/成本收�
 ## 2. 原版真正被代码强制的硬数字（内化时的锚点）
 > ★ **R90 逐条复核**（对着 `D:\app\omc` 真读源码；"强制"的判据 = **有函数真的拦/抛/截断**，不只看常量存在）：
 > 四行常量在 `core/config.py:358-361`（`MAX_REVIEW_ROUNDS=3` / `MAX_CHILDREN_PER_NODE=10` /
-> `MAX_TREE_DEPTH=6` / `MAX_HOLD_SECONDS=1800`）；**另一份副本** `C:\Users\Eldwen\OneManCompany_new`
+> `MAX_TREE_DEPTH=6` / `MAX_HOLD_SECONDS=1800`）；**另一份副本**（`<原版 OMC 检出目录>`）
 > 的同一文件里值**逐字一致**、行号在 `:351-354` —— 恰好**差 7 行**（`EVIDENCE.md:106` 的说法**成立**）。
 
 | 闸 | 值 | 原版出处（**含"真的在哪拦"**） |
