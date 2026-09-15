@@ -195,6 +195,8 @@ function help() {
       无法按项目分）。运行时它会打一行 FORK-SEED-GLOBAL 明说这件事。
       要按项目分见 runs/005-role-skills/STATE-LOCATION.md §6。
   teamkit doctor
+  teamkit init                         ★ **初始化一家公司**：装齐该装的 + **逐条报"还差什么、为什么"**
+                                      （⚠️ 它**装不齐** —— 我们这家公司是多个包，只有本包开源了）
   teamkit help | --help | -h           本页（**不写盘**）
   teamkit version | --version | -v     报版本（读 package.json，**不写盘**）—— 报 bug 时带上它
 
@@ -7320,6 +7322,140 @@ async function doctor() {
   process.stdout.write('\n结论：doctor 只看"能不能跑起来"；逻辑正确性用 `teamkit selftest`（三态判定）。\n')
 }
 
+/**
+ * ★★★ `teamkit init` —— **初始化一家公司**（2026-09-15 / 委托方训话的落地）
+ *
+ * ## 委托方原话（这一条就是为它写的）
+ * ```
+ * 「不是我们现在用的什么，你开源什么呀，为什么这些东西不开源出来？
+ *   你创建了这么久的这个公司，你们公司有什么可以拿来？**就是给别人初始化用的**，
+ *   你难道不开源玩吗？那别人用的体验跟我们的不一样，难道不是你的失职吗？」
+ * ```
+ * ## 它做什么
+ * ```
+ * 把"从零到和我们一样一家公司"需要的**这几步**串成**一条命令**（丙方案）：
+ *   ① 核本包资产齐不齐（预设 / 角色档 / 技能 / 组织层）
+ *   ② 跑安装器（`tools/install-teamkit.mjs`）⇒ 装到 `$DSH_HOME`
+ *   ③ ★★ **逐条报"还有什么没装、为什么"** —— 拿不到的**必须显式报未获取**
+ * ```
+ * ## ★★ 判据（CEO §④ 写死；本命令逐条实现）
+ * ```
+ * ① **一条命令** `node plugin/bin/teamkit.mjs init` ⇒ 尽量装齐
+ * ② ★★ **对"拿不到的"必须明确报「未获取 + 为什么」**（`R24`）——
+ *    ⛔ **不许静默跳过**（那会让陌生人以为"装完了"）
+ * ③ ★ **幂等**：重复跑 ⇒ 不重复装、不报错
+ * ④ ★ **失败不静默**：每一步给「装了 / 已存在 / 未获取+原因」三态
+ * ⑤ ★★ 写进 `plugin/README.md` 的「初始化一家公司」一节
+ * ```
+ * ## ⚠️ **它现在装不齐**（诚实口径）
+ * ```
+ * 「我们这家公司」= 多个包，而**只有 `dsh-teamkit` 开源了** ⇒
+ *   ★ 所以本命令的**真正价值是把缺口显式化**（输出里点名"哪些未开源"）——
+ *     而不是假装装完了。
+ * ```
+ */
+async function initCmd() {
+  const cfg = await import('../lib/config.js')
+  const paths = cfg.resolveAll({}, { pluginDir: PLUGIN_DIR })
+  process.stdout.write('teamkit init · **初始化一家公司**\n')
+  process.stdout.write('  目标：把"从零到和我们一样一家公司"需要的步骤串成一条命令。\n')
+  process.stdout.write('  ⚠️ 它会**尽量装齐**，并**逐条报"还差什么、为什么"**（不许静默跳过）。\n\n')
+
+  // ── ① 本包资产齐不齐（装之前先自证"我有东西可装"）───────────────────────
+  const assets = [
+    ['预设 omc', join(PLUGIN_DIR, 'assets', 'presets', 'omc', 'agent.cordis.yml')],
+    ['组织层 RULES.yml', join(PLUGIN_DIR, 'assets', 'org', 'RULES.yml')],
+    ['组织层 TALENTS.yml', join(PLUGIN_DIR, 'assets', 'org', 'TALENTS.yml')],
+    ['公司建造指南', join(PLUGIN_DIR, 'assets', 'org', 'COMPANY-GUIDE.md')],
+    ['技能上游（7 条）', join(PLUGIN_DIR, 'skills')],
+    ['角色档', join(PLUGIN_DIR, 'assets', 'roles')],
+  ]
+  process.stdout.write('【第 1 步】核本包资产：\n')
+  let lacking = 0
+  for (const [name, p] of assets) {
+    const ok = existsSync(p)
+    if (!ok) lacking += 1
+    process.stdout.write(`  ${ok ? 'OK ' : 'XX '} ${name}\n`)
+  }
+  if (lacking > 0) {
+    process.stdout.write(`\n⛔ **本包自身缺 ${lacking} 项资产** ⇒ 停在这里（先修包，别往下装）\n`)
+    process.exit(1)
+  }
+
+  // ── ② 跑安装器（装到 $DSH_HOME）─────────────────────────────────────────
+  process.stdout.write('\n【第 2 步】装到本机（`$DSH_HOME`）：\n')
+  const installer = join(PLUGIN_DIR, 'tools', 'install-teamkit.mjs')
+  if (!existsSync(installer)) {
+    process.stdout.write('  XX **安装器不在包里**（tools/install-teamkit.mjs）⇒ 未获取\n')
+    process.exit(1)
+  }
+  const r = spawnSync(process.execPath, [installer], { encoding: 'utf8', windowsHide: true, timeout: 300000 })
+  const out = String(r.stdout ?? '') + String(r.stderr ?? '')
+  for (const line of out.trim().split('\n').slice(-14)) process.stdout.write(`      ${line}\n`)
+  if (r.status !== 0) {
+    process.stdout.write(`  XX **安装器退出码 ${r.status}** ⇒ 失败不静默（上面是它的原始输出）\n`)
+    process.exit(1)
+  }
+  process.stdout.write('  OK 安装器跑完（exit=0）\n')
+
+  // ── ③ ★★ 逐条报"公司还差什么"（**本命令的核心价值**）────────────────────
+  // ```
+  // 这一节是**委托方那句"给别人初始化用的"的直接落地**：
+  //   ★ **陌生人拿不到的东西，必须在这里被点名** —— 否则他会以为"装完了、就这些"。
+  // 数据源：`COMPANY-INIT-INVENTORY.md`（那份清单是逐条实测出来的，不是估的）。
+  // ```
+  process.stdout.write('\n【第 3 步】公司还差什么（**逐条：拿得到 / 拿不到 + 为什么**）：\n')
+  const company = [
+    { name: '@dsh-external/dsh-teamkit', role: '公司层（角色档 / 技能 / 组织层 / 指南）', avail: true, how: '已装（本包）' },
+    { name: '@dsh-external/dsh-org-panel', role: '★ 侧边栏"办公室"（**看得到公司**）', avail: false, how: '**未开源** ⇒ 陌生人拿不到（这正是"侧边栏没有办公室"的原因）' },
+    { name: '@dsh-external/dsh-super-injector', role: '运行时注入（把本地包挂进 loader）', avail: false, how: '**有公开仓但版本落后**（本地 0.3.4 vs 公开 0.3.3）⇒ 装了也不是我们这份' },
+    { name: '@dsh-external/dsh-tool-output-guard', role: '工具输出护栏', avail: false, how: '**未开源**' },
+    { name: '@dsh-external/dsh-agent-browser', role: '侧边栏浏览器面板', avail: false, how: '**未开源**' },
+    { name: '@dsh-external/dsh-issue-watch', role: 'issue 监视', avail: false, how: '**未开源**' },
+    { name: '@dsh-external/dsh-model-fit', role: '模型适配', avail: false, how: '**未开源**' },
+    { name: '@deepseek-ai/dsh-tool-diff', role: '工具：diff', avail: true, how: '**别人开源**（`omdsh-dev/dsh-tool-diff`）⇒ `npm i` 可拿' },
+    { name: '@deepseek-ai/dsh-tool-json', role: '工具：json', avail: true, how: '**别人开源**（`omdsh-dev/dsh-tool-json`）' },
+    { name: '@deepseek-ai/dsh-tool-markdown', role: '工具：markdown', avail: true, how: '**别人开源**（`omdsh-dev/dsh-tool-markdown`）' },
+    { name: '@deepseek-ai/dsh-tool-time', role: '工具：time', avail: true, how: '**别人开源**（`omdsh-dev/dsh-tool-time`）' },
+  ]
+  let missing = 0
+  for (const c of company) {
+    if (!c.avail) missing += 1
+    process.stdout.write(`  ${c.avail ? 'OK ' : '-- '} ${c.name}\n        ${c.role}\n        ⇒ ${c.how}\n`)
+  }
+
+  // ── ④ 落点体检（装了之后能不能用）──────────────────────────────────────
+  process.stdout.write('\n【第 4 步】落点体检：\n')
+  const checks = [
+    ['角色档', join(paths.dshHome, 'teamkit', 'roles')],
+    ['技能上游', join(paths.dshHome, 'teamkit', 'skills-upstream')],
+    ['talents', join(paths.dshHome, 'teamkit', 'talents')],
+    ['组织层 RULES.yml', join(paths.dshHome, 'teamkit', 'RULES.yml')],
+    ['公司建造指南', join(paths.dshHome, 'teamkit', 'COMPANY-GUIDE.md')],
+    ['预设 omc', join(paths.dshHome, '.agent-presets', 'omc')],
+  ]
+  for (const [name, p] of checks) {
+    const ok = existsSync(p)
+    process.stdout.write(`  ${ok ? 'OK ' : 'XX '} ${name}：${p}\n`)
+  }
+
+  // ── ⑤ 结论（**三态，不粉饰**）──────────────────────────────────────────
+  process.stdout.write('\n' + '='.repeat(64) + '\n')
+  if (missing === 0) {
+    process.stdout.write('判定：**PASS（公司齐了）** —— 新建会话、预设选 `omc` 即可。\n')
+  } else {
+    process.stdout.write(
+      `判定：**部分完成 —— 装上了「公司层」，但还差 ${missing} 个包（它们尚未开源/版本落后）**\n` +
+        '  ★ **这不是你装错了**：那几个包**现在任何人都拿不到**（本清单见\n' +
+        '    `plugin/assets/org/COMPANY-GUIDE.md` 与仓库根的 `COMPANY-INIT-INVENTORY.md`）。\n' +
+        '  ★ **你现在已经有的**：公司层（角色档 / 技能 / 组织层 / 建造指南）+ 预设 `omc`\n' +
+        '    ⇒ 新建会话选 `omc` 就能开公司；**但侧边栏不会有"办公室"面板**（那个包未开源）。\n',
+    )
+    process.exitCode = 2 // ★ 未获取 ≠ 失败（与 selftest 的三态口径一致）
+  }
+  process.stdout.write('  幂等：本命令可重复跑（安装器本身幂等）。\n')
+}
+
 // ── 派发 ─────────────────────────────────────────────────────────────────
 switch (cmd) {
   case 'selftest':
@@ -7342,6 +7478,13 @@ switch (cmd) {
     break
   case 'doctor':
     await doctor()
+    break
+  // ★★★ `init`（2026-09-15 / 委托方训话的落地）：**初始化一家公司** ——
+  //   把"从零到和我们一样一家公司"串成**一条命令**，并**逐条报"还差什么、为什么"**。
+  //   ⚠️ 它**装不齐**（我们这家公司是多个包，只有本包开源了）⇒
+  //     ★ **它的核心价值是"把缺口显式化"**，而不是假装装完了（`R24`：报"无"要附范围）。
+  case 'init':
+    await initCmd()
     break
   // ★★ `orphans` / `verify-route`（task-107）：把"孤儿任务巡检"从备忘做成机制。
   //   `orphans` 的 **exit=1 才是它存在的意义**（有孤儿 ⇒ 红）；`2` = 未获取（**不许静默 0**）。
