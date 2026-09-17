@@ -50,9 +50,13 @@ AI 的**遵从性高、没有歪心思** —— 照搬人类公司制度，是**
 ### 1.1 装（三步）
 
 ```bash
+# ⓪ 先把它拿到手（clone 到任意目录）
+git clone https://github.com/yjh051108/dsh-teamkit
+#    ⇒ 下面 ① 里的 `<你 clone 的>` 就是这一步的落点
+
 # ① 装插件本体（让 DSH 认识这个插件）
 #    前提：pnpm 必须在 PATH 上（dsh plugin 是转发给 pnpm 的）
-dsh plugin --profile web add <你 clone 下来的>/plugin
+dsh plugin --profile web add <你 clone 的>/plugin
 
 # ② 装"资产"—— 插件只是机制，开公司还需要数据（skills / talents / roles / preset）
 #    ⚠️ 必须在"插件装到的那个目录"里跑（profile 目录），不是在你的项目目录里
