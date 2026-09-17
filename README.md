@@ -716,6 +716,41 @@ cd /tmp/dsh-teamkit && node tools/install-teamkit.mjs
 
 ## 维护
 
+### ★★ 发布：**唯一入口是 `release-push`**（**不许直接跑 push 脚本**）
+
+> **为什么强制**：**"推了" 与 "验了" 是两件事** ——
+> 现场：我们推完 `crash-guard.js`，公开仓只拿到一个**残版**，**而没人发现**（直到对手方复核）。
+> ⇒ 所以 `push-all-via-api.mjs` / `push-big-file-via-api.mjs` **没有 `DSH_RELEASE_PUSH=1` 就拒绝运行**。
+
+```bash
+# ★ 唯一入口：推 + **自动回读**（一条命令）
+node tools/release-push.mjs --repo=teamkit --message="改了什么"
+node tools/release-push.mjs --repo=company --files=BUILD.md --message="改了什么"
+
+# 它做三件：
+#   ① 转发器内推 → 停（443 释放）
+#   ② 转发器内跑 release-verify（R1–R7 逐条读）
+#   ③ ★ R5（443 = 0）由它【在转发器之外】测 —— 这是唯一能测它的位置
+#      （release-verify 自己必须跑在转发器内 ⇒ 它**不可能**自测 R5）
+# 读数落盘：仓根 RELEASE-READINGS.md
+```
+
+**`release-verify` 的七条判据**（`--slug=<o/r> --local=<本地目录>`）：
+
+| 判据 | 它核什么 |
+|---|---|
+| **R1** | trees 可读（未认证 API）· blob 总数 |
+| **R2** | 禁目录 = 0（`runs/` `notes/` `.git` `node_modules` …） |
+| **R3** | PII 逐文件取（**落盘**，非管道）+ ★ **版本自证**（比 git blob sha —— `raw` 有 CDN 缓存，会骗人） |
+| **R4** | 本地 ↔ 远端逐字节（**双向**：远端多出来的也会列出来，别把"全一致"读成"全对上了"） |
+| **R5** | 443 = 0（**只能**由 `release-push` 在转发器之外测） |
+| **R6** | ★ **三方一致**（工作区 / `git HEAD` / 远端）—— 抓"HEAD 漂移" |
+| **R7** | ★ **公开仓历史**扫描（`--history`，**很贵**，默认不开）—— 抓"HEAD 干净但历史里留着" |
+
+> ⚠️ **核"推没推上去"只许用 API 的 trees / `blob` 本体 / git blob sha** ——
+> **`raw.githubusercontent.com` 一律不可信**（它今晚骗过我们三次：截断 · CDN 旧 · CDN 新）。
+> ⚠️ **逃生口**：`DSH_ALLOW_RAW_PUSH=1`（应急用，**显式越权**，**没有自动回读**）。
+
 ### 单一事实来源（7 条方法技能）
 
 **技能的维护入口只有一个：仓内 `../skills/`。** 本包 `skills/` 是它的**打包副本**，
