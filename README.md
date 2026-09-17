@@ -383,7 +383,7 @@ node bin/teamkit.mjs promote --all --source <你的技能仓> --note "这次主�
 | 键 | 默认值 | 为什么是这个默认值 |
 |---|---|---|
 | `workspace` | `$DSH_TEAMKIT_WORKSPACE` → `process.cwd()` | cwd 是"用户在哪想用这套"的唯一无盘符信号；不猜仓名 |
-| `dshHome` | `$DSH_HOME` → `~/.dsh` | DSH 自己的口径。⚠️ 本机 `os.homedir()` 返回的是 `Administrator` 而非真实家 ⇒ **env 优先** |
+| `dshHome` | `$DSH_HOME` → `~/.dsh` | DSH 自己的口径。⚠️ 本机 `os.homedir()` 返回的是**一个非真实家的账户名**（不是你的家目录）⇒ **env 优先** |
 | `stateDir` | `$DSH_HOME/.teamkit` | ⚠️ **task-57 改**：**全局一份**的状态根（history / CHANGELOG / log 都在它下面）。旧默认 `<workspace>/.teamkit` 在真宿主里 = `process.cwd()` ⇒ **多项目串台**（实测：`D:\dsh\.teamkit` 里同时躺着两个项目的成员 fork）。必须在 6 个技能扫描根之外 |
 | `agent.stateTemplate` | `{cwd}/.teamkit` | ⚠️ **task-57 新增**：**按 agent 分**的状态根模板。`{cwd}` = 该 agent 的 `session.header.cwd` ⇒ 每个项目各有自己的 fork 落点。**这是修串台的正解** |
 | `fork.perAgent` | `true` | ⚠️ **task-57 新增**：fork 落点是否按 `agent.cwd` 分。`false` = 退回旧的"跟 workspace"行为（逃生开关） |
