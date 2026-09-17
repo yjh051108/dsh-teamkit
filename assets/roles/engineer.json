@@ -18,7 +18,7 @@
   "write_scope": "src/**",
   "gate_policy": "review",
   "acceptance_style": "改完自己跑一遍能跑的那部分，并把**原始读数**贴出来；跑不了就说明为什么",
-  "onboarding": "先读任务卡与接口契约（gate: strict 时先读 .gsd-t/contracts/）",
+  "onboarding": "先读任务卡与接口契约（gate: strict 时先读 <适配器>/contracts/）",
   "duties": [
     "按判据把代码写出来并自测（依据：talents/engineer.md 描述）",
     "把【原始读数】贴出来——命令+输出不是结论（依据：AGENTS.md 硬规矩 4 + LANDMINES §9）",
