@@ -36,8 +36,14 @@
 > **一个讲"装"，一个讲"建"**，别混。
 >
 > ★★ **怎么开一家这样的公司** ⇒ <https://github.com/yjh051108/dsh-company>
-> （**成文法 / 踩坑集 / 马克思主义理论稿 / 判据对照表 K1–K22**）
-> —— 那是**读的东西**（方法论）；本包是**装的东西**（插件）。**两个仓分开，是因为你打开时要立刻知道该读哪个。**
+> （**成文法 / 踩坑集 / 马克思主义理论稿 / 判据对照表 K1–K25**）
+> —— 那是**读的东西**（方法论）；本包是**装的东西**（插件）。**三个仓分开，是因为你打开时要立刻知道该读哪个、装哪个。**
+>
+> ★★ **想让"公司"看得见**（**侧边栏 · 办公室面板**）⇒ <https://github.com/yjh051108/dsh-org-panel>
+> ⚠️ **注意前置**：它需要一个**完整 profile**
+> （`dsh --profile <你的 profile> --from-default-profile web`），否则会报
+> `1 entry did not activate` —— **面板 README 开头有这条前置说明**。
+> ★ 三条命令看清三件东西：**本包** = 公司层（能开公司）· **`dsh-org-panel`** = 看得到公司 · **`dsh-company`** = 怎么开公司。
 
 > 这一节是**操作手册**；下面 `## 装` 是**完整版本与维护细节**。
 > 如果你只想让它跑起来，照这 6 步做（**顺序不能换**）。
@@ -758,20 +764,43 @@ node scripts/sync-skills.mjs --check   # 只检查漂移（CI 用；漂移 ⇒ �
 > **进程自杀**（`Error: write EOF` / `Emitted 'error' event on Socket instance` / `errno -4095, code 'EOF'`）。
 > **实测 5 起**（`09-12×2` · `09-14×1` · `09-15×2`）。
 >
-> **本插件做什么**：给 `process.stdout` / `process.stderr` 装 `'error'` 监听，
-> **只吞管道断开那一族**（`code === 'EOF' | 'EPIPE'`，或 `errno === -4095` 且栈含 `Socket`/`WriteWrap`）。
-> **别的 error 一律重新抛** ⇒ **不掩盖任何别的错误**（普通 bug 照样崩）。
-> ⛔ **我们【不装】`process.on('uncaughtException')`** —— 那会吞掉**所有**异常，含我们自己的 bug。
-> ★ **可卸**：卸载插件后监听器计数回到原值（`stdout.listenerCount('error')`：装前 N → 装后 N+1 → 卸后 N）。
+> **本插件做什么**（**两层**）：
+> ```
+> 【第 1 层】给 `process.stdout` / `process.stderr` 装 `'error'` 监听，
+>   只吞管道断开那一族（`code === 'EOF' | 'EPIPE'`，或 `errno === -4095` 且栈含 `Socket`/`WriteWrap`）。
+>   **别的 error 一律重新抛** ⇒ 不掩盖任何别的错误（普通 bug 照样崩）。
+> 【第 2 层】★ **进程级兜底**（2026-09-16 追加）—— `process.on('uncaughtException')`，
+>   但★**只兜同一族**（`isPipeBroken`）；★ 并且**必须记一条日志**
+>   `UNCAUGHT-PIPE-EOF-SWALLOWED`（不许"吞了没人知道"）。
+>   ⚠️ **非管道异常 ⇒ 显式复现 Node 默认行为**（打栈 + `process.exit(1)`）⇒ **不掩盖我们自己的 bug**。
+> ```
+> **为什么加第 2 层**（实测事故，2026-09-16）：装了第 1 层 **2.5 小时之后宿主照样崩**，
+> 而日志里**"吞掉"命中 = 0** ⇒ ★ 证明**崩的不是 stdout/stderr** ——
+> 是 `dsh-host-webserver/lib/index.js:260-269` 的 **upgrade socket**：
+> `:265 socket.on("error", onError)` · **`:267 socket.off("error", onError)`（`close` 时撤监听）**
+> ⇒ close 之后该 socket 上**没有任何 error 监听** ⇒ 之后的写 ⇒ **未捕获 EOF ⇒ 进程死**。
+> ★ 那个 socket 在**官方包里（= DSH 本体）** ⇒ 我们不能改（硬规矩 1）⇒ **第 2 层是我们唯一够得到它的位置**。
+> ⛔ **但【不要】把"补了保命网"当成"装配期也安全了"** ——
+> **装配期致命错误**（例：包缺 `dsh.bundle` 却进了 `bundles` ⇒ `loadProfileDirectory` 抛）
+> 发生在**插件自己的 `ctx.effect` 之前** ⇒ 那时**这两层网都还没装上** ⇒ **兜不了**。
+> 装配期的问题看 [`INSTALL-PITFALLS.md`](https://github.com/yjh051108/dsh-company/blob/master/INSTALL-PITFALLS.md)。
+> ★ **可卸**：卸载插件后两个监听器计数都回到原值（`stdout.listenerCount('error')` + `process.listenerCount('uncaughtException')`）。
 > 关掉它的开关：配置 `crashGuard.enabled = false`。
 >
 > **边界（诚实口径）**：
-> · 它**只治症状**（宿主不因管道断开而自杀）；**根因在桌面壳那一侧**（给 `spawn` 传 `stdio` 或先 detach 再关读端）——
+> · 它**只治症状**（宿主不因管道断开而自杀）；**第 1 层的根因在桌面壳那一侧**（给 `spawn` 传 `stdio` 或先 detach 再关读端）——
 >   **那是 `D:\dsh\desktop`，不是本仓**，我们**不越界去改**，只上报。
+> · **第 2 层的根因在 `dsh-host-webserver`（官方包）** ⇒ 同样**只上报，不改**。
 > · 我的复现**产出的是 `EPIPE: broken pipe, write`**，而现场是 **`write EOF`** ——
 >   两者是**同一族**（往已断的管道写），Node 在不同时机给不同 errno ⇒ 判据按**族**判。
-> · 能红证据：`tools/crash-guard-test.mjs` ⇒ **PASS 12/12**（四条判据全双向：装/不装 · 管道断/`TypeError` ·
->   装前中后计数 · 非管道类 `EBADF` 照旧抛 · 正常 `console.log` 照常出去）。
+> · 能红证据（**三条，都要自己跑，别抄数**）：
+>   · `tools/crash-guard-test.mjs` —— 第 1 层（装/不装 · 管道断/`TypeError` · 计数 · 非管道 `EBADF` 照旧抛）
+>   · `tools/crash-guard-uncaught-test.mjs` —— ★ **第 2 层双向**（见下）
+> · ★★ **第 2 层的双向判据**（缺一不可）：
+>   ① 造**别处 socket** 的 `write EOF`（**模拟 webserver 那个 socket**，不是 stdout）⇒ **进程不死** + 日志一条
+>   ①-b **不装网** ⇒ **照旧崩**（证明是网在起作用）
+>   ② ★★ 造普通 `TypeError` ⇒ **照旧崩 exit=1** + **栈打出来** ← **这才是"没有掩盖错误"**
+>   ③ 卸网 ⇒ `uncaughtException` 计数回 0
 
 ### 1. 成员**只增不删**（底座限制，不是本插件的选择）
 
