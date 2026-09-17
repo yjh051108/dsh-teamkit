@@ -747,6 +747,14 @@ node tools/release-push.mjs --repo=company --files=BUILD.md --message="改了什
 | **R6** | ★ **三方一致**（工作区 / `git HEAD` / 远端）—— 抓"HEAD 漂移" |
 | **R7** | ★ **公开仓历史**扫描（`--history`，**很贵**，默认不开）—— 抓"HEAD 干净但历史里留着" |
 
+> ★★ **另外三条不在这张表里、但同样由发布流程跑**（它们**要网络** ⇒ 不进 `check-all` 的常规快跑）：
+> · **`check-push-drift.mjs`** —— ★ **专抓"提交了但没推"**
+>   （`B25`/`B28` 两次都是这个形态：本地改完 → `git commit` → ★ **忘了 `release-push`** ⇒ 用户拿到旧版）
+>   ⇒ **提交后顺手跑一次就知道**（不必等到发布）：
+>   `node tools/check-push-drift.mjs --slug=yjh051108/dsh-teamkit --local=plugin`
+> · **`check-remote-blob.mjs`** —— 用**认证 API** 逐个核 blob sha（不烧未认证的 60/h 配额）
+> · **`verify-history-three-state.mjs`** —— **离线**自检 R7 的三态口径（不需要网络）
+
 > ⚠️ **核"推没推上去"只许用 API 的 trees / `blob` 本体 / git blob sha** ——
 > **`raw.githubusercontent.com` 一律不可信**（它今晚骗过我们三次：截断 · CDN 旧 · CDN 新）。
 > ⚠️ **逃生口**：`DSH_ALLOW_RAW_PUSH=1`（应急用，**显式越权**，**没有自动回读**）。
