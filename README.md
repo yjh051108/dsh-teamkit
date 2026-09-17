@@ -49,10 +49,15 @@
 > 如果你只想让它跑起来，照这 6 步做（**顺序不能换**）。
 
 ```bash
+# ⓪ ★ **先把它拿到手**（clone 到任意目录）—— 没有这一步，①里的路径你不会有
+git clone https://github.com/yjh051108/dsh-teamkit
+#    ⇒ **下一步里的 `<你 clone 的>` 就是这一步的落点**（默认是当前目录下的 `dsh-teamkit/`）
+#    ⚠️ **没有 git** ⇒ 到 https://github.com/yjh051108/dsh-teamkit 点 "Code → Download ZIP" 解压也行。
+
 # ① 装插件本体（bundle 进 profile；web 为例）
 #    ⚠️ **给绝对路径**（不是 `file:./plugin`）—— 见下面那条实测。
-dsh plugin --profile web add "D:\path\to\omc-agent-teams\plugin"
-#    Linux/macOS： dsh plugin --profile web add /path/to/omc-agent-teams/plugin
+dsh plugin --profile web add "<你 clone 的>/plugin"
+#    Linux/macOS： dsh plugin --profile web add "/你 clone 的/plugin"
 #    ⚠️ **前提：`pnpm` 必须在 PATH 上**（`dsh plugin` 是转发给 pnpm 的）——
 #       pnpm 不在 PATH 时它只会报 `'pnpm' is not recognized`，看不出是缺前置。
 
@@ -126,8 +131,10 @@ $ teamkit status
 ### ① 先装插件本体
 
 ```bash
-# 把本包作为 bundle 装进你的 profile（web 为例）
-dsh plugin --profile web add "D:\path\to\omc-agent-teams\plugin"    # ← 绝对路径，别用 file:./plugin
+# 先把本包拿到手（若还没 clone）
+git clone https://github.com/yjh051108/dsh-teamkit
+# 再把本包作为 bundle 装进你的 profile（web 为例）
+dsh plugin --profile web add "<你 clone 的>/plugin"    # ← 绝对路径，别用 file:./plugin
 ```
 > 装完**重启或热重载**才生效（见下面 §③）。
 > ⚠️ **`file:./plugin` 会失败**、**`pnpm` 必须在 PATH 上** —— 两条都有逐字错误与原因，见上面「30 秒上手」那节的两个坑。
