@@ -2765,8 +2765,49 @@ const roles = await import('../lib/roles.js')
       CHECK('H29', null, '总入口 `tools/check-all.mjs` 读不到 ⇒ 未验证', '它在**仓根** `tools/` 下（不在包里）')
     } else {
       const checkerDirs = [join(PLUGIN_DIR, '..', 'runs', '005-role-skills', 'tools'), join(PLUGIN_DIR, '..', 'tools')]
-      const wired = allSrc
+      // ══════════════════════════════════════════════════════════════════════════
+      // ★★★ **2026-09-18 扩：从"名字出现在总入口里" ⇒ "真有一个调用者文件引用它"**
+      // ```
+      // 【为什么扩（CEO 抓到 `check-remote-blob` 没接上）】
+      //   原实现：`const wired = allSrc`（把 `check-all.mjs` 全文当一个字符串）
+      //     ⇒ 判据是 `allSrc.includes(f)` ⇒ ★★ **只要那个文件名【在注释里出现过】就算"接上了"**
+      //   ⇒ ⚠️ 而那是**白名单形状的洞**：只要在 `check-all.mjs` 里写一句注释提到某个脚本名
+      //     ⇒ **`H29` 当场变绿，而那个脚本仍然没人跑**。
+      // 【修法（两条一起）】
+      //   ① **总入口**（`check-all.mjs` 的 `SUITES`）⇒ 仍算"已接上"（它**真的会跑**）
+      //   ② ★ 否则 ⇒ **必须有一个【别的文件】真的把它当脚本调用**
+      //      （在该文件里找 `xxx.mjs` 引用，**排除自引用**）
+      //      ⇒ 找不到 ⇒ **照样报红**（**不是白名单：调用关系必须能被验证**）
+      // ```
+      const repoRoot = join(PLUGIN_DIR, '..')
+      /** ★ 找"哪些【别的】 .mjs 引用了 `name`"（排除它自己 ⇒ 自引用不算调用者） */
+      const callersOf = (name) => {
+        const found = []
+        const scan = (dir) => {
+          let es = []
+          try {
+            es = readdirSync(dir, { withFileTypes: true })
+          } catch {
+            return
+          }
+          for (const e of es) {
+            if (e.name === 'node_modules' || e.name === '.git') continue
+            const p = join(dir, e.name)
+            if (e.isDirectory()) scan(p)
+            else if (e.name.endsWith('.mjs') && e.name !== name) {
+              try {
+                if (readFileSync(p, 'utf8').includes(name)) found.push(relative(repoRoot, p).split('\\').join('/'))
+              } catch { /* skip */ }
+            }
+          }
+        }
+        scan(join(repoRoot, 'tools'))
+        scan(join(repoRoot, 'plugin', 'tools'))
+        scan(join(repoRoot, 'plugin', 'scripts'))
+        return found
+      }
       const unwired = []
+      const viaCaller = []
       for (const d of checkerDirs) {
         let files = []
         try {
@@ -2786,13 +2827,21 @@ const roles = await import('../lib/roles.js')
         } catch {
           files = []
         }
-        for (const f of files) if (!wired.includes(f)) unwired.push(f)
+        for (const f of files) {
+          if (allSrc.includes(f)) continue // ① 总入口真会跑它
+          // ② ★ 否则：必须有【别的文件】真调用它（**排除自引用** —— 否则"自己提到自己"就算数）
+          const cs = callersOf(f)
+          if (cs.length > 0) viaCaller.push(`${f}←${cs[0]}`)
+          else unwired.push(f)
+        }
       }
       CHECK('H29', unwired.length === 0,
-        '★★ **仓里每个 `check-*.mjs` 与 `verify-*.mjs` 都被"总入口"接上了**（否则它只在我记得跑时才跑）',
+        '★★ **仓里每个 `check-*.mjs` / `verify-*.mjs` 都被"总入口"【或某个调用者】接上了**',
         '没接上 ⇒ **漏跑不会有任何信号**（与 R47/R69 同族："做出来了，但没有机械动作去用它"）' +
-          '；★ **本断言的扫描范围本身有洞时，它自己会报绿**（2026-09-15 实测：漏掉 `verify-*`）',
-        unwired.length === 0 ? '全部已接上总入口 ✓' : `**没接上：${unwired.join(', ')}**`)
+          '；★ **不是白名单**：在 `check-all.mjs` 里用注释提到名字**不算** —— 必须有【别的文件】真引用它',
+        unwired.length === 0
+          ? `全部已接上 ✓${viaCaller.length > 0 ? `（${viaCaller.length} 个由别的脚本调用：${viaCaller.slice(0, 3).join(' · ')}）` : ''}`
+          : `**没接上：${unwired.join(', ')}**`)
     }
   }
 
