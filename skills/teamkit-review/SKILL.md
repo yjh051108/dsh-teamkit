@@ -144,5 +144,5 @@ DSH **没有调度器**（`TeamTaskBoard` 只认 `journal + maxTasks`，连 rost
 - 多域交叉、接口契约会被别人依赖；
 - 出错的代价**不可逆**（数据 / 资金 / 发布）。
 
-点火方式：`gate: strict` → 接 GSD-T 的 verify-gate（`gsd_workflow verify` / `gsd_cli`）。
+点火方式：`gate: strict` → 接 <上游适配器> 的 verify-gate（`gsd_workflow verify` / `gsd_cli`）。
 **默认永远是 review。** 硬门禁是"我这次要一张签字纸"，不是"更专业"。
