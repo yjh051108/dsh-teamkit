@@ -7580,6 +7580,11 @@ async function initCmd() {
     { name: '@dsh-external/dsh-agent-browser', role: '侧边栏浏览器面板', slug: null },
     { name: '@dsh-external/dsh-issue-watch', role: 'issue 监视', slug: 'yjh051108/dsh-issue-watch' },
     { name: '@dsh-external/dsh-model-fit', role: '模型适配', slug: 'yjh051108/dsh-model-fit' },
+    // ★ 2026-09-18 **第二批**（`coo` 报的第⑤步 · 我逐仓核过 `gh api repos/…` ⇒ **200**）
+    //   ⚠️ **name/role 我照 `package.json` 核过**（**不凭转述** —— 那两包的 name 与描述逐字对上了）
+    //   ⇒ ★ 不加这两行 = **"仓建好了、公开了，而 `init` 里用户看不到"**（第一批刚修过的那个坑）
+    { name: '@dsh-external/dsh-symbiote', role: '共生体：只读观测闭环盘档（真 C 信誉 / 注意力税 / 蒸馏草稿）', slug: 'yjh051108/dsh-symbiote' },
+    { name: '@dsh-external/dsh-web-tools', role: '浏览器工具（web_status / web_shot / web_dom）', slug: 'yjh051108/dsh-web-tools' },
     { name: '@deepseek-ai/dsh-tool-diff', role: '工具：diff（**别人开源**）', slug: 'omdsh-dev/dsh-tool-diff' },
     { name: '@deepseek-ai/dsh-tool-json', role: '工具：json（**别人开源**）', slug: 'omdsh-dev/dsh-tool-json' },
     { name: '@deepseek-ai/dsh-tool-markdown', role: '工具：markdown（**别人开源**）', slug: 'omdsh-dev/dsh-tool-markdown' },
