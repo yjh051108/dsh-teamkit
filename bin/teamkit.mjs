@@ -7481,12 +7481,45 @@ async function initCmd() {
     }
   }
 
+  /** ★★★ **认证 token（优先用）** —— 2026-09-18 / CEO §③【1】
+   * ```
+   * 【为什么需要】未认证 GitHub API **只有 60 次/小时** ⇒ 而 `init` 一次要问 N 个仓
+   *   ⇒ ★ 实测：未认证配额被烧光后，**每个仓都返回 403 rate-limit**
+   *     ⇒ 而旧代码把它当"不存在" ⇒ **用户看到"这包没有"，而它明明在**（今晚第 6 例）
+   * 【★ 为什么不用 `gh api`】它走 `hosts`（`github.com` → 127.0.0.1）⇒ **要转发器**
+   *   ⇒ ⚠️ **而 `init` 是给用户跑的命令 ⇒ 不该要求它先起转发器**
+   * ⇒ **正解：拿 token 直接加在 `curl` 的 `Authorization` 头上**（`--resolve` 直连那条路保留）
+   * 【token 从哪来（按可靠性排序）】① 环境变量 ② `gh auth token`（本机装了 gh 就有）
+   *   ⇒ **都拿不到 ⇒ 未认证**（并**明说"可能被限流"** —— 不猜）
+   * ⚠️ **token 绝不打印/落盘**（只用于这一个请求头）。
+   * ```
+   */
+  const ghToken = (() => {
+    for (const k of ['GH_TOKEN', 'GITHUB_TOKEN']) {
+      const v = process.env[k]
+      if (typeof v === 'string' && v.trim() !== '') return v.trim()
+    }
+    try {
+      const gh = [
+        'C:\\Program Files\\GitHub CLI\\gh.exe',
+        join(process.env.LOCALAPPDATA ?? '', 'Programs', 'GitHub CLI', 'gh.exe'),
+      ].find((p) => { try { return statSync(p).isFile() } catch { return false } })
+      if (gh === undefined) return null
+      const r = spawnSync(gh, ['auth', 'token'], { encoding: 'utf8', windowsHide: true, timeout: 10000 })
+      const t = String(r.stdout ?? '').trim()
+      return /^[A-Za-z0-9_]{20,}$/.test(t) ? t : null
+    } catch {
+      return null
+    }
+  })()
+
   /** 查一个公开仓：返回 {exists, fullName, files, hasPatch} 或 null（未获取） */
   const probeRepo = async (slug, ip) => {
     if (ip === null) return null
+    const authArgs = ghToken === null ? [] : ['-H', `Authorization: Bearer ${ghToken}`]
     const r = spawnSync(
       'curl',
-      ['-s', '--max-time', '6', '--resolve', `api.github.com:443:${ip}`,
+      ['-s', '--max-time', '6', '--resolve', `api.github.com:443:${ip}`, ...authArgs,
        `https://api.github.com/repos/${slug}`],
       { encoding: 'utf8', windowsHide: true, timeout: 15000 },
     )
@@ -7494,11 +7527,32 @@ async function initCmd() {
     if (body.trim() === '') return null
     try {
       const j = JSON.parse(body)
-      if (j.full_name === undefined) return { exists: false, why: j.message ?? '未知' }
-      // 顺带取 tree（判"关键文件在不在"，如 `cordis.patch.yml`）
+      if (j.full_name === undefined) {
+        // ★★★ **区分「真的不存在(404)」与「限流/被拦(403/429)」**（2026-09-18 · 实测抓到的误报）
+        // ```
+        // 【现场】未认证 API **配额只有 60/小时** ⇒ 用完就每个仓库都返回
+        //   `{"message":"API rate limit exceeded for …"}`
+        //   ⇒ ★★ 而旧代码把它当成 `exists: false` ⇒ `init` 对用户说
+        //     「**未获取** —— **该地址不存在**」 ⇒ **那是假的**（仓明明在）
+        // 【★ 它错在哪一步】`j.full_name === undefined` 有**很多种原因**
+        //   （404 真不存在 / 403 限流 / 401 / 网络异常…）⇒ 而旧代码**只用一个状态表达所有**
+        //   ⇒ ★ 与 `R24` 同族：**"我读不到" ≠ "它不存在"**
+        // 【修法】**看 `message` 判因**：含 `rate limit` ⇒ 记「限流」；含 `Not Found` ⇒ 才是"不存在"
+        //   ⇒ 其余的 ⇒ 一律**未获取**（不猜）。
+        // ⚠️ **顺带**：`init` 每跑一次就要问 N 个仓 ⇒ **更容易撞配额**
+        //   ⇒ 所以**这条误报在真实使用中很常见**（用户第一次跑就可能是这样）。
+        // ```
+        const msg = String(j.message ?? '未知')
+        if (/rate limit/i.test(msg)) {
+          return { exists: false, why: `**GitHub API 限流**（未认证只有 60 次/小时）⇒ **不是"仓不存在"**`, rateLimited: true }
+        }
+        if (/Not Found|404/i.test(msg)) return { exists: false, why: '**该地址确实不存在**（404）' }
+        return null // ★ **其他原因（401/403/网络…）⇒ 未获取，不猜**
+      }
+      // 顺带取 tree（判"关键文件在不在"，如 `cordis.patch.yml`）—— ★ **同样带认证**（省配额）
       const rt = spawnSync(
         'curl',
-        ['-s', '--max-time', '6', '--resolve', `api.github.com:443:${ip}`,
+        ['-s', '--max-time', '6', '--resolve', `api.github.com:443:${ip}`, ...authArgs,
          `https://api.github.com/repos/${slug}/git/trees/${j.default_branch}?recursive=1`],
         { encoding: 'utf8', windowsHide: true, timeout: 15000 },
       )
@@ -7519,10 +7573,13 @@ async function initCmd() {
     { name: '@dsh-external/dsh-org-panel', role: '★ 侧边栏"办公室"（**看得到公司**）', slug: 'yjh051108/dsh-org-panel', need: 'cordis.patch.yml' },
     { name: '@dsh-external/dsh-super-injector', role: '运行时注入（把本地包挂进 loader）', slug: 'yjh051108/dsh-super-injector' },
     { name: '@dsh-external/dsh-engram-relay', role: '记忆图谱（engram）', slug: 'yjh051108/dsh-engram-relay' },
-    { name: '@dsh-external/dsh-tool-output-guard', role: '工具输出护栏', slug: null },
+    // ★ 2026-09-18：这三个**已建公开仓**（我逐仓核过 `gh api repos/…` ⇒ **200**）⇒ slug 填上
+    //   ⇒ ⚠️ 而 `dsh-agent-browser` **保持 `null`** —— 实测 **404（确实还没有）**，
+    //     ★ **不许为了"看起来全绿"而编一个 slug**（那会造出"指向不存在的来源"，即 `B37` 那族）
+    { name: '@dsh-external/dsh-tool-output-guard', role: '工具输出护栏', slug: 'yjh051108/dsh-tool-output-guard' },
     { name: '@dsh-external/dsh-agent-browser', role: '侧边栏浏览器面板', slug: null },
-    { name: '@dsh-external/dsh-issue-watch', role: 'issue 监视', slug: null },
-    { name: '@dsh-external/dsh-model-fit', role: '模型适配', slug: null },
+    { name: '@dsh-external/dsh-issue-watch', role: 'issue 监视', slug: 'yjh051108/dsh-issue-watch' },
+    { name: '@dsh-external/dsh-model-fit', role: '模型适配', slug: 'yjh051108/dsh-model-fit' },
     { name: '@deepseek-ai/dsh-tool-diff', role: '工具：diff（**别人开源**）', slug: 'omdsh-dev/dsh-tool-diff' },
     { name: '@deepseek-ai/dsh-tool-json', role: '工具：json（**别人开源**）', slug: 'omdsh-dev/dsh-tool-json' },
     { name: '@deepseek-ai/dsh-tool-markdown', role: '工具：markdown（**别人开源**）', slug: 'omdsh-dev/dsh-tool-markdown' },
@@ -7547,10 +7604,20 @@ async function initCmd() {
         mark = '?? '
         unverified += 1
         how = `**未获取** —— GitHub API 取不到（无网/被拦）⇒ **不猜**（手动查 https://github.com/${c.slug}）`
+      } else if (got.rateLimited === true) {
+        // ★★★ **限流 ≠ 不存在**（2026-09-18 / CEO §③【2】）
+        // ```
+        // 【现场】旧输出逐字：`**未获取** —— 该地址不存在（API rate limit exceeded …）`
+        //   ⇒ ★★ **两个矛盾的说法同时出现，而用户先读到"该地址不存在"** ⇒ 他会以为这包没有。
+        // 【修法】限流单独一档 ⇒ `??`（未获取）+ **明说"是限流不是不存在"** + 可操作的话。
+        // ```
+        mark = '?? '
+        unverified += 1
+        how = `${got.why}\n        ⇒ ★ **不是"它没有"**（我这次没读到而已）· 重试，或配 \`GH_TOKEN\` 后更准`
       } else if (!got.exists) {
         mark = '-- '
         missing += 1
-        how = `**未获取** —— 该地址不存在（${got.why}）`
+        how = `**未获取** —— ${got.why}`
       } else {
         mark = 'OK '
         let note = `**public**：https://github.com/${got.fullName}`
