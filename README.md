@@ -1,3 +1,7 @@
+> ⚠️ 本仓已并入 [yjh051108/dsh-omc](https://github.com/yjh051108/dsh-omc)（单仓库化）。
+> 新装：`git clone https://github.com/yjh051108/dsh-omc && cd dsh-omc && ./install.sh`
+> 本仓保留为历史镜像；已 clone 的仍可 pull。
+
 # dsh-teamkit
 
 > **Agent Teams 的组织层插件**：把「上游 / fork / PR 三件套」做成**别人能装、我们能维护**的一个包。
